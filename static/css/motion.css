@@ -1,0 +1,51 @@
+/* 交互动效 —— 只动 transform / opacity，避免 iOS 掉帧 */
+button { -webkit-tap-highlight-color: transparent; }
+
+.pin-toggle,
+.pinmark,
+[aria-label="更多"],
+[aria-label="打开边栏"],
+[aria-label="关闭边栏"],
+[aria-label="切换模型"] {
+  transition: transform .12s cubic-bezier(.22, .61, .36, 1), opacity .12s ease;
+  will-change: transform;
+}
+
+.pin-toggle:active,
+.pinmark:active,
+[aria-label="更多"]:active,
+[aria-label="打开边栏"]:active,
+[aria-label="关闭边栏"]:active,
+[aria-label="切换模型"]:active {
+  transform: scale(.88);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pin-toggle, .pinmark, [aria-label="更多"],
+  [aria-label="打开边栏"], [aria-label="关闭边栏"], [aria-label="切换模型"] {
+    transition-duration: .06s;
+  }
+  .ds-in { animation-duration: .14s !important; }
+}
+
+/* ---- 全局可见动效 ---- */
+@keyframes dsMsgIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.ds-in { animation: dsMsgIn .32s cubic-bezier(.22,.61,.36,1) both !important; }
+
+@keyframes dsBtnIn {
+  from { opacity: 0; transform: translateY(8px) scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+[aria-label="回到底部"] { animation: dsBtnIn .22s ease both; }
+
+.ds-pressed {
+  transform: scale(.93) !important;
+  opacity: .8 !important;
+  transition: transform .1s ease, opacity .1s ease !important;
+}
+
+.ds-search { transition: box-shadow .18s ease, background-color .18s ease; }
+.ds-search:focus { box-shadow: 0 0 0 2px rgba(79,140,255,.34); }

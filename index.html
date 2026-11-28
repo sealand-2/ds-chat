@@ -1,0 +1,123 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#151517"><title>DeepSeek Chat（长对话修复版）</title><meta content="0.1.3-fix" name="application-version"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="DeepSeek Chat"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="format-detection" content="telephone=no"><script>
+/* DeepSeek API 看门狗：连续 75 秒无数据主动中止，并把最近一次请求的摘要留给诊断页。 */
+(function () {
+  try {
+    var nativeFetch = window.fetch.bind(window);
+    if (typeof ReadableStream === 'undefined' || typeof Response === 'undefined') return;
+    var API_RE = /^https:\/\/api\.deepseek\.com\//;
+    var IDLE_MS = 75000;
+    var KEY = 'chat-demo:last-request';
+    function save(rec) {
+      try { window.__lastApiRequest = rec; localStorage.setItem(KEY, JSON.stringify(rec)); } catch (e) {}
+    }
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (!API_RE.test(url)) return nativeFetch(input, init);
+      init = init || {};
+      var outer = init.signal;
+      var ctrl = new AbortController();
+      var timedOut = false;
+      var timer = 0;
+      var started = Date.now();
+      var rec = { at: new Date().toISOString(), url: url, bodyBytes: 0, messageCount: null, toolCount: null, model: null, thinking: null };
+      try {
+        if (typeof init.body === 'string') {
+          rec.bodyBytes = init.body.length;
+          var body = JSON.parse(init.body);
+          rec.model = body.model || null;
+          rec.messageCount = Array.isArray(body.messages) ? body.messages.length : null;
+          rec.toolCount = Array.isArray(body.tools) ? body.tools.length : null;
+          rec.thinking = body.thinking && body.thinking.type || null;
+          rec.stream = !!body.stream;
+        }
+      } catch (e) {}
+      save(rec);
+      function abortTimer() {
+        if (timedOut) return;
+        timedOut = true;
+        rec.timeout = true;
+        rec.error = '75 秒无数据';
+        rec.elapsedMs = Date.now() - started;
+        save(rec);
+        try { ctrl.abort(new DOMException('连接 DeepSeek 超过 75 秒没有返回任何数据', 'TimeoutError')); }
+        catch (e) { ctrl.abort(); }
+      }
+      function arm() { clearTimeout(timer); timer = setTimeout(abortTimer, IDLE_MS); }
+      if (outer) {
+        if (outer.aborted) ctrl.abort();
+        else outer.addEventListener('abort', function () { ctrl.abort(); }, { once: true });
+      }
+      arm();
+      var opts = {};
+      for (var k in init) if (Object.prototype.hasOwnProperty.call(init, k) && k !== 'signal') opts[k] = init[k];
+      opts.signal = ctrl.signal;
+      return nativeFetch(input, opts).then(function (res) {
+        clearTimeout(timer);
+        rec.status = res.status;
+        rec.headersMs = Date.now() - started;
+        save(rec);
+        if (!res.body) return res;
+        var reader = res.body.getReader();
+        var closed = false;
+        function pump(controller) {
+          reader.read().then(function (r) {
+            if (closed) return;
+            if (r.done) {
+              closed = true; clearTimeout(timer);
+              rec.doneMs = Date.now() - started;
+              save(rec);
+              controller.close();
+              return;
+            }
+            if (rec.firstChunkMs == null) { rec.firstChunkMs = Date.now() - started; save(rec); }
+            arm();
+            controller.enqueue(r.value);
+            pump(controller);
+          }).catch(function (err) {
+            closed = true; clearTimeout(timer);
+            rec.failed = true;
+            rec.error = String(err && err.message || err);
+            rec.elapsedMs = Date.now() - started;
+            save(rec);
+            try { controller.error(err); } catch (e) {}
+          });
+        }
+        var stream = new ReadableStream({
+          start: function (controller) { arm(); pump(controller); },
+          cancel: function (reason) { closed = true; clearTimeout(timer); return reader.cancel(reason); }
+        });
+        return new Response(stream, { status: res.status, statusText: res.statusText, headers: res.headers });
+      }).catch(function (err) {
+        clearTimeout(timer);
+        if (timedOut) throw new DOMException('连接 DeepSeek 超过 75 秒没有返回任何数据，请检查网络或稍后重试', 'TimeoutError');
+        rec.failed = true;
+        rec.error = String(err && err.message || err);
+        rec.elapsedMs = Date.now() - started;
+        save(rec);
+        throw err;
+      });
+    };
+  } catch (e) {}
+})();
+</script><script src="static/js/model-switch2.js?v=4"></script><script defer src="static/js/main.js?v=ios24"></script><link href="static/css/main.css?v=ios20" rel="stylesheet"><script src="static/js/import-ui.js?v=1"></script><link rel="stylesheet" href="static/css/motion.css?v=2"><script src="static/js/pin.js?v=4"></script><script src="static/js/update-check.js?v=1"></script><script src="static/js/search.js?v=3"></script><script src="static/js/follow.js?v=5"></script><script src="static/js/motion.js?v=2"></script>
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="static/icon-180.png"><script>
+/* 停用 Service Worker：它会用旧缓存盖住新文件，导致改了什么都不生效 */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  var noop = function(){ return Promise.reject(new Error('sw disabled')); };
+  try { Object.defineProperty(navigator.serviceWorker,'register',{value:noop,configurable:true,writable:true}); } catch(e) { try{ navigator.serviceWorker.register=noop }catch(e2){} }
+  try { navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }); } catch(e) {}
+  try { if(window.caches&&caches.keys) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }); } catch(e) {}
+})();
+</script></head><body><div id="root"></div><script>
+(function(){
+  function closeDrawer(){
+    if (window.innerWidth >= 960) return;
+    var b = document.querySelector('[aria-label="收起边栏"],[aria-label*="收起"],[title*="收起"]');
+    if (b && b.offsetParent !== null) b.click();
+  }
+  [200, 600, 1200, 2200].forEach(function(t){ setTimeout(closeDrawer, t); });
+  window.addEventListener('load', function(){ setTimeout(closeDrawer, 100); });
+})();
+</script>
+</body></html>
